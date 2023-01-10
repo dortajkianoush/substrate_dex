@@ -20,9 +20,6 @@ use sp_runtime::{
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
-use frame_support::PalletId;
-use frame_system::EnsureRoot;
-use sp_runtime::traits::Identity;
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -52,8 +49,6 @@ pub use sp_runtime::{Perbill, Permill};
 
 /// Import the template pallet.
 pub use pallet_template;
-pub use pallet_dex;
-
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -212,46 +207,6 @@ impl frame_system::Config for Runtime {
 
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
-
-pub type AssetBalance = Balance;
-pub type AssetId = u32;
-
-impl pallet_assets::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type Balance = AssetBalance;
-    type AssetId = AssetId;
-    type Currency = Balances;
-    type ForceOrigin = EnsureRoot<AccountId>;
-    type AssetDeposit = ConstU128<1>;
-    type AssetAccountDeposit = ConstU128<10>;
-    type MetadataDepositBase = ConstU128<1>;
-    type MetadataDepositPerByte = ConstU128<1>;
-    type ApprovalDeposit = ConstU128<1>;
-    type StringLimit = ConstU32<50>;
-    type Freezer = ();
-    type Extra = ();
-    type WeightInfo = ();
-}
-parameter_types! {
-    pub const DexPalletId: PalletId = PalletId(*b"dex_mock");
-}
-
-impl pallet_dex::Config for Runtime {
-    type PalletId = DexPalletId;
-    type RuntimeEvent = RuntimeEvent;
-    type Currency = Balances;
-    type AssetBalance = AssetBalance;
-    type AssetToCurrencyBalance = Identity;
-    type CurrencyToAssetBalance = Identity;
-    type AssetId = AssetId;
-    type Assets = Assets;
-    type AssetRegistry = Assets;
-    // type WeightInfo = ();
-    // Provider fee is 0.3%
-    type ProviderFeeNumerator = ConstU128<3>;
-    type ProviderFeeDenominator = ConstU128<1000>;
-    type MinDeposit = ConstU128<1>;
-}
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
 	type DisabledValidators = ();
@@ -325,7 +280,6 @@ impl pallet_template::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 }
 
-
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime
@@ -344,8 +298,6 @@ construct_runtime!(
 		Sudo: pallet_sudo,
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
-		Assets: pallet_assets,
-        Dex: pallet_dex,
 	}
 );
 
