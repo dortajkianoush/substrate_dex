@@ -10,6 +10,7 @@ use frame_support::traits::AsEnsureOriginWithArg;
 use frame_support::PalletId;
 use frame_system::EnsureRoot;
 use pallet_contracts::weights::WeightInfo;
+use pallet_contracts_rpc_runtime_api::ContractExecResult;
 use pallet_grandpa::{
 	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
@@ -676,47 +677,41 @@ impl_runtime_apis! {
 	}
 
 
-/*** Add this block ***/
-impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash> for Runtime {
+	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber>
+	for Runtime
+{
 	fn call(
-	   origin: AccountId,
-	   dest: AccountId,
-	   value: Balance,
-	   gas_limit: u64,
-	   storage_deposit_limit: Option<Balance>,
-	   input_data: Vec<u8>,
-	) -> pallet_contracts_primitives::ContractExecResult<Balance> {
-	   Contracts::bare_call(origin, dest, value, gas_limit, storage_deposit_limit, input_data, CONTRACTS_DEBUG_OUTPUT)
-	}
-
-	fn instantiate(
-	   origin: AccountId,
-	   value: Balance,
-	   gas_limit: u64,
-	   storage_deposit_limit: Option<Balance>,
-	   code: pallet_contracts_primitives::Code<Hash>,
-	   data: Vec<u8>,
-	   salt: Vec<u8>,
-	) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, Balance> {
-	   Contracts::bare_instantiate(origin, value, gas_limit, storage_deposit_limit, code, data, salt, CONTRACTS_DEBUG_OUTPUT)
-	}
-
-	fn upload_code(
-	   origin: AccountId,
-	   code: Vec<u8>,
-	   storage_deposit_limit: Option<Balance>,
-	) -> pallet_contracts_primitives::CodeUploadResult<Hash, Balance> {
-	   Contracts::bare_upload_code(origin, code, storage_deposit_limit)
+		origin: AccountId,
+		dest: AccountId,
+		value: Balance,
+		gas_limit: u64,
+		input_data: Vec<u8>,
+	) -> ContractExecResult {
+		let (exec_result, gas_consumed) =
+			Contracts::bare_call(origin, dest.into(), value, gas_limit, input_data);
+		match exec_result {
+			Ok(v) => ContractExecResult::Success {
+				flags: v.flags.bits(),
+				data: v.data,
+				gas_consumed: gas_consumed,
+			},
+			Err(_) => ContractExecResult::Error,
+		}
 	}
 
 	fn get_storage(
-	   address: AccountId,
-	   key: Vec<u8>,
+		address: AccountId,
+		key: [u8; 32],
 	) -> pallet_contracts_primitives::GetStorageResult {
-	   Contracts::get_storage(address, key)
+		Contracts::get_storage(address, key)
 	}
-  }
 
+	fn rent_projection(
+		address: AccountId,
+	) -> pallet_contracts_primitives::RentProjectionResult<BlockNumber> {
+		Contracts::rent_projection(address)
+	}
+}
 
 }
 
