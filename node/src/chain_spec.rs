@@ -1,6 +1,6 @@
 use node_template_runtime::{
-	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig,
-	SystemConfig, WASM_BINARY,
+	AccountId, AssetsConfig, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature,
+	SudoConfig, SystemConfig, WASM_BINARY,
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -137,6 +137,7 @@ fn testnet_genesis(
 			// Add Wasm runtime to storage.
 			code: wasm_binary.to_vec(),
 		},
+		assets: AssetsConfig { assets: vec![], accounts: vec![], metadata: vec![] },
 		balances: BalancesConfig {
 			// Configure endowed accounts with initial balance of 1 << 60.
 			balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),

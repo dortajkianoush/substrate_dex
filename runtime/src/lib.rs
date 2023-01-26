@@ -6,12 +6,17 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use frame_support::traits::AsEnsureOriginWithArg;
+use frame_support::PalletId;
+use frame_system::EnsureRoot;
+use pallet_contracts::weights::WeightInfo;
 use pallet_grandpa::{
 	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_runtime::traits::Identity;
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{
@@ -20,9 +25,6 @@ use sp_runtime::{
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
-use frame_support::PalletId;
-use frame_system::EnsureRoot;
-use sp_runtime::traits::Identity;
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -32,7 +34,8 @@ use sp_version::RuntimeVersion;
 pub use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness, StorageInfo,
+		ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Nothing, Randomness,
+		StorageInfo,
 	},
 	weights::{
 		constants::{
@@ -50,6 +53,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
+pub use pallet_dex;
 /// Import the template pallet.
 pub use pallet_template;
 
@@ -115,22 +119,26 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	state_version: 1,
 };
 
-/// This determines the average expected block time that we are targeting.
-/// Blocks will be produced at a minimum duration defined by `SLOT_DURATION`.
-/// `SLOT_DURATION` is picked up by `pallet_timestamp` which is in turn picked
-/// up by `pallet_aura` to implement `fn slot_duration()`.
-///
-/// Change this to adjust the block time.
-pub const MILLISECS_PER_BLOCK: u64 = 6000;
-
-// NOTE: Currently it is not possible to change the slot duration after the chain has started.
-//       Attempting to do so will brick block production.
-pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
-
+/* After this block */
 // Time is measured by number of blocks.
 pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber);
 pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
+
+/* Add this block */
+// Contracts price units.
+pub const MILLICENTS: Balance = 1_000_000_000;
+pub const CENTS: Balance = 1_000 * MILLICENTS;
+pub const DOLLARS: Balance = 100 * CENTS;
+
+const fn deposit(items: u32, bytes: u32) -> Balance {
+	items as Balance * 15 * CENTS + (bytes as Balance) * 6 * CENTS
+}
+
+/// Assume ~10% of the block weight is consumed by `on_initialize` handlers.
+/// This is used to limit the maximal weight of a single extrinsic.
+const AVERAGE_ON_INITIALIZE_RATIO: Perbill = Perbill::from_percent(10);
+/*** End Added Block ***/
 
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
@@ -155,7 +163,6 @@ parameter_types! {
 }
 
 // Configure FRAME pallets to include in runtime.
-
 impl frame_system::Config for Runtime {
 	/// The basic call filter to use in dispatchable.
 	type BaseCallFilter = frame_support::traits::Everything;
@@ -207,6 +214,63 @@ impl frame_system::Config for Runtime {
 	type OnSetCode = ();
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
+
+/*** Add this block ***/
+parameter_types! {
+	pub TombstoneDeposit: Balance = deposit(
+		1,
+		<pallet_contracts::Pallet<Runtime>>::contract_info_size()
+	);
+	pub DepositPerContract: Balance = TombstoneDeposit::get();
+	pub const DepositPerStorageByte: Balance = deposit(0, 1);
+	pub const DepositPerStorageItem: Balance = deposit(1, 0);
+	pub RentFraction: Perbill = Perbill::from_rational(1u32, 30 * DAYS);
+	pub const SurchargeReward: Balance = 150 * MILLICENTS;
+	pub const SignedClaimHandicap: u32 = 2;
+	pub const MaxValueSize: u32 = 16 * 1024;
+	// The lazy deletion runs inside on_initialize.
+	pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
+	 BlockWeights::get().max_block;
+	// The weight needed for decoding the queue should be less or equal than a fifth
+	// of the overall weight dedicated to the lazy deletion.
+	pub DeletionQueueDepth: u32 = ((DeletionWeightLimit::get() / (
+		<Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(1) -
+		<Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(0)
+	 )) / 5) as u32;
+
+	pub Schedule: pallet_contracts::Schedule<Runtime> = Default::default();
+}
+
+impl pallet_contracts::Config for Runtime {
+	type Time = Timestamp;
+	type Randomness = RandomnessCollectiveFlip;
+	type Currency = Balances;
+	type Event = Event;
+	type RentPayment = ();
+	type SignedClaimHandicap = SignedClaimHandicap;
+	type TombstoneDeposit = TombstoneDeposit;
+	type DepositPerContract = DepositPerContract;
+	type DepositPerStorageByte = DepositPerStorageByte;
+	type DepositPerStorageItem = DepositPerStorageItem;
+	type RentFraction = RentFraction;
+	type SurchargeReward = SurchargeReward;
+	type WeightPrice = pallet_transaction_payment::Module<Self>;
+	type WeightInfo = pallet_contracts::weights::SubstrateWeight<Self>;
+	type ChainExtension = ();
+	type DeletionQueueDepth = DeletionQueueDepth;
+	type DeletionWeightLimit = DeletionWeightLimit;
+	type Call = Call;
+	/// The safest default is to allow no calls at all.
+	///
+	/// Runtimes should whitelist dispatchables that are allowed to be called from contracts
+	/// and make sure they are stable. Dispatchables exposed to contracts are not allowed to
+	/// change because that would break already deployed contracts. The `Call` structure itself
+	/// is not allowed to change the indices of existing pallets, too.
+	type CallFilter = Nothing;
+	type Schedule = Schedule;
+	type CallStack = [pallet_contracts::Frame<Self>; 31];
+}
+/*** End added block ***/
 
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
@@ -300,7 +364,32 @@ impl pallet_assets::Config for Runtime {
 	type StringLimit = ConstU32<50>;
 	type Freezer = ();
 	type Extra = ();
+	type RemoveItemsLimit = ConstU32<1000>;
+	type AssetIdParameter = u32;
+	type CallbackHandle = ();
+	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
 	type WeightInfo = ();
+}
+
+parameter_types! {
+	pub const DexPalletId: PalletId = PalletId(*b"dex_mock");
+}
+
+impl pallet_dex::Config for Runtime {
+	type PalletId = DexPalletId;
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type AssetBalance = AssetBalance;
+	type AssetToCurrencyBalance = Identity;
+	type CurrencyToAssetBalance = Identity;
+	type AssetId = AssetId;
+	type Assets = Assets;
+	type AssetRegistry = Assets;
+	// type WeightInfo = ();
+	// Provider fee is 0.3%
+	type ProviderFeeNumerator = ConstU128<3>;
+	type ProviderFeeDenominator = ConstU128<1000>;
+	type MinDeposit = ConstU128<1>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -322,6 +411,9 @@ construct_runtime!(
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
 		Assets: pallet_assets,
+		DEX: pallet_dex,
+		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
+
 	}
 );
 
@@ -373,6 +465,7 @@ mod benches {
 }
 
 impl_runtime_apis! {
+
 	impl sp_api::Core<Block> for Runtime {
 		fn version() -> RuntimeVersion {
 			VERSION
@@ -581,6 +674,50 @@ impl_runtime_apis! {
 			Executive::try_execute_block(block, state_root_check, select).expect("execute-block failed")
 		}
 	}
+
+
+/*** Add this block ***/
+impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash> for Runtime {
+	fn call(
+	   origin: AccountId,
+	   dest: AccountId,
+	   value: Balance,
+	   gas_limit: u64,
+	   storage_deposit_limit: Option<Balance>,
+	   input_data: Vec<u8>,
+	) -> pallet_contracts_primitives::ContractExecResult<Balance> {
+	   Contracts::bare_call(origin, dest, value, gas_limit, storage_deposit_limit, input_data, CONTRACTS_DEBUG_OUTPUT)
+	}
+
+	fn instantiate(
+	   origin: AccountId,
+	   value: Balance,
+	   gas_limit: u64,
+	   storage_deposit_limit: Option<Balance>,
+	   code: pallet_contracts_primitives::Code<Hash>,
+	   data: Vec<u8>,
+	   salt: Vec<u8>,
+	) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, Balance> {
+	   Contracts::bare_instantiate(origin, value, gas_limit, storage_deposit_limit, code, data, salt, CONTRACTS_DEBUG_OUTPUT)
+	}
+
+	fn upload_code(
+	   origin: AccountId,
+	   code: Vec<u8>,
+	   storage_deposit_limit: Option<Balance>,
+	) -> pallet_contracts_primitives::CodeUploadResult<Hash, Balance> {
+	   Contracts::bare_upload_code(origin, code, storage_deposit_limit)
+	}
+
+	fn get_storage(
+	   address: AccountId,
+	   key: Vec<u8>,
+	) -> pallet_contracts_primitives::GetStorageResult {
+	   Contracts::get_storage(address, key)
+	}
+  }
+
+
 }
 
 #[cfg(test)]
