@@ -54,8 +54,6 @@ pallet-template = { version = "4.0.0-dev", default-features = false, path = "../
 pallet-dex = { version = "0.0.1", default-features = false, path = "../pallets/dex" }
 pallet-contracts = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git",  " branch" = "polkadot-v0.9.35" }
 pallet-contracts-primitives = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git",  " branch" = "polkadot-v0.9.35" }
-pallet-contracts-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", " branch" = "polkadot-v0.9.27" }
-
 
 [build-dependencies]
 substrate-wasm-builder = { version = "5.0.0-dev", git = "https://github.com/paritytech/substrate.git", " branch" = "polkadot-v0.9.35" }
@@ -97,7 +95,6 @@ std = [
 	"sp-std/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
-	"pallet-contracts-rpc-runtime-api/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
